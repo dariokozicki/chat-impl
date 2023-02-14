@@ -6,27 +6,34 @@ export const msgRouter = createTRPCRouter({
   list: publicProcedure
     .input(
       z.object({
-        cursor: z.string().optional(),
-        orderBy: z.object({ key: z.enum(ORDER_BY_KEYS), order: z.enum(ORDER) }),
+        cursor: z.string().nullish(),
+        limit: z.number().nullish(),
+        orderBy: z
+          .object({ key: ORDER_BY_KEYS, order: ORDER })
+          .default({ key: ORDER_BY_KEYS.Enum.id, order: ORDER.Enum.asc }),
       })
     )
-    .query(({ input, ctx }) => {
-      return ctx.prisma.message.findMany({
-        cursor: { id: input.cursor },
+    .query(async ({ input, ctx }) => {
+      const limit = input.limit ?? 10;
+      const { cursor } = input;
+      const items = await ctx.prisma.message.findMany({
+        take: (input.limit || 10) + 1,
+        cursor: cursor ? { id: cursor } : undefined,
         orderBy: {
-          ...(input.orderBy.key === ORDER_BY_KEYS[0] && {
-            id: input.orderBy.order,
-          }),
-          ...(input.orderBy.key === ORDER_BY_KEYS[1] && {
-            content: input.orderBy.order,
-          }),
+          [input.orderBy.key]: input.orderBy.order,
         },
       });
+      let nextCursor: string | undefined = undefined;
+      if (items.length > limit) {
+        const nextItem = items.pop();
+        nextCursor = nextItem![input.orderBy.key];
+      }
+      return { items, nextCursor };
     }),
 
   add: publicProcedure
     .input(z.object({ content: z.string(), hasImage: z.boolean().optional() }))
-    .query(({ input, ctx }) => {
+    .mutation(({ input, ctx }) => {
       return ctx.prisma.message.create({
         data: {
           fileUrl: null,
@@ -36,7 +43,7 @@ export const msgRouter = createTRPCRouter({
       });
     }),
 
-  delete: publicProcedure.query(() => {
+  delete: publicProcedure.mutation(() => {
     return "you can now see this secret message!";
   }),
 });
